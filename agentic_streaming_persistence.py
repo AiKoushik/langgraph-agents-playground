@@ -6,15 +6,32 @@ import operator
 from langchain_core.messages import AnyMessage, SystemMessage, HumanMessage, ToolMessage
 
 from langchain_openai import ChatOpenAI
-#from langchain_community.llms import OpenAI
 from langchain_community.tools.tavily_search import TavilySearchResults
 
-from langgraph.checkpoint.sqlite import SqliteSaver
-import sqlite3
+from langgraph.checkpoint.postgres import PostgresSaver
+from psycopg_pool import ConnectionPool
 
-#from pydantic import ValidationError
+import os
+
 
 _ = load_dotenv(find_dotenv())
+
+#setting up prompt, model, tool and memory checkpointer for persistence
+prompt = """You are a smart research assistant. Use the search engine to look up information. \
+You are allowed to make multiple calls (either together or in sequence). \
+Only look up information when you are sure of what you want. \
+If you need to look up some information before asking a follow up question, you are allowed to do that!
+"""
+model = ChatOpenAI(model = "gpt-4o-mini")    #gpt-4o-mini #gpt-4o #gpt-4-turbo #gpt-3.5-turbo
+tool = TavilySearchResults(max_results = 2)
+
+#os.getenv() is necessary here, but not for API keys since libraries regarding API keys automatically looks for those in Python environment where it's loaded after calling load_env()
+DB_URI = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@localhost:{os.getenv('POSTGRES_DB_PORT')}/{os.getenv('POSTGRES_DB_NAME')}?sslmode=disable"
+connection_kwargs = {
+    "autocommit": True,
+    "prepare_threshold": 0,
+}
+thread_id = "area_comparison_dhaka_khulna"
 
 
 class AgentState(TypedDict):
@@ -86,27 +103,29 @@ class Agent:
         return len(result.tool_calls) > 0
 
 
-#setting up prompt, model, tool and memory checkpointer for persistence
-model = ChatOpenAI(model = "gpt-4o")    #gpt-4o #gpt-4-turbo #gpt-3.5-turbo
-tool = TavilySearchResults(max_results = 2)
-#memory = SqliteSaver.from_conn_string(":memory")
-#memory = SqliteSaver.from_conn_string("my_database.db")
-conn = sqlite3.connect("checkpoints.sqlite")
-memory = SqliteSaver(conn)
-#print(type(memory))
-prompt = """You are a smart research assistant. Use the search engine to look up information. \
-You are allowed to make multiple calls (either together or in sequence). \
-Only look up information when you are sure of what you want. \
-If you need to look up some information before asking a follow up question, you are allowed to do that!
-"""
+def ask_question(question, thread_id):
+    messages = [HumanMessage(content = question)]
+    thread = {"configurable": {"thread_id": thread_id}}
+    #streaming output after every message
+    for event in abot.graph.stream({"messages": messages}, thread):
+        for v in event.values():
+            print("\n\n")
+            print(v['messages'])
 
-#creating the agent
-abot = Agent(model = model, tools = [tool], checkpointer = memory, system = prompt)
 
-messages = [HumanMessage(content = "What is the weather in Dhaka right now?")]
-thread = {"configurable": {"thread_id": "1"}}
+#creating and invoking the agent with postgres memory checkpointer with connection pooling
+with ConnectionPool(
+    conninfo = DB_URI,
+    max_size = 20,
+    kwargs = connection_kwargs
+) as pool:
+    checkpointer = PostgresSaver(pool)
+    # NOTE: you need to call .setup() the first time you're using your checkpointer
+    checkpointer.setup()
+    
+    abot = Agent(model = model, tools = [tool], checkpointer = checkpointer, system = prompt)
 
-for event in abot.graph.stream({"messages": messages}, thread):
-    for v in event.values():
-        print("\n\n")
-        print(v['messages'])
+    ask_question("What is the area of Dhaka?", thread_id = thread_id)
+    ask_question("What about Khulna?", thread_id = thread_id)
+    ask_question("Which is bigger and how many times?", thread_id = thread_id)
+
