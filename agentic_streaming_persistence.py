@@ -10,11 +10,12 @@ from langchain_openai import ChatOpenAI
 from langchain_community.tools.tavily_search import TavilySearchResults
 
 from langgraph.checkpoint.sqlite import SqliteSaver
+import sqlite3
+
+#from pydantic import ValidationError
 
 _ = load_dotenv(find_dotenv())
 
-tool = TavilySearchResults(max_results = 2)
-memory = SqliteSaver.from_conn_string(":memory")
 
 class AgentState(TypedDict):
     messages: Annotated[list[AnyMessage], operator.add]
@@ -24,7 +25,7 @@ class Agent:
         self.system = system
         
         #initialise graph wiht state
-        graph = StateGraph()
+        graph = StateGraph(AgentState)
         
         #adding nodes
         graph.add_node("llm", self.call_openai)
@@ -61,11 +62,11 @@ class Agent:
         
         #fetching and returning new message obtained from llm call
         message = self.model.invoke(messages)
-        retun {'messages': [message]}
+        return {'messages': [message]}
 
     #node: action; performing tool calling for all suggested tools
     def take_action(self, state: AgentState):
-        tool_calls = state['message'][-1].tool_calls
+        tool_calls = state['messages'][-1].tool_calls
         results = []
 
         for t in tool_calls:
@@ -74,12 +75,38 @@ class Agent:
             result = self.tools[t['name']].invoke(t['args'])
 
             #formatting and appending tool_message to results
-            tool_message = ToolMessage(tool_call_id = t['id'], name =)t['name'], content = str(result)
+            tool_message = ToolMessage(tool_call_id = t['id'], name = t['name'], content = str(result))
             results.append(tool_message)
 
         return {'messages': results}
 
-    #determining if tool calling is necessary    
+    #conditional_edge; determining if tool calling is necessary    
     def exists_aciton(self, state: AgentState):
         result = state['messages'][-1]
-        return len(result.tools_calls) > 0
+        return len(result.tool_calls) > 0
+
+
+#setting up prompt, model, tool and memory checkpointer for persistence
+model = ChatOpenAI(model = "gpt-4o")    #gpt-4o #gpt-4-turbo #gpt-3.5-turbo
+tool = TavilySearchResults(max_results = 2)
+#memory = SqliteSaver.from_conn_string(":memory")
+#memory = SqliteSaver.from_conn_string("my_database.db")
+conn = sqlite3.connect("checkpoints.sqlite")
+memory = SqliteSaver(conn)
+#print(type(memory))
+prompt = """You are a smart research assistant. Use the search engine to look up information. \
+You are allowed to make multiple calls (either together or in sequence). \
+Only look up information when you are sure of what you want. \
+If you need to look up some information before asking a follow up question, you are allowed to do that!
+"""
+
+#creating the agent
+abot = Agent(model = model, tools = [tool], checkpointer = memory, system = prompt)
+
+messages = [HumanMessage(content = "What is the weather in Dhaka right now?")]
+thread = {"configurable": {"thread_id": "1"}}
+
+for event in abot.graph.stream({"messages": messages}, thread):
+    for v in event.values():
+        print("\n\n")
+        print(v['messages'])
