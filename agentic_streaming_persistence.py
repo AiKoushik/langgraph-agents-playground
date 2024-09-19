@@ -5,7 +5,8 @@ from typing import TypedDict, Annotated
 import operator
 from langchain_core.messages import AnyMessage, SystemMessage, HumanMessage, ToolMessage
 
-from langchain_openai import ChatOpenAI
+#from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_community.tools.tavily_search import TavilySearchResults
 
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -19,10 +20,13 @@ _ = load_dotenv(find_dotenv())
 #setting up prompt, model, tool and memory checkpointer for persistence
 prompt = """You are a smart research assistant. Use the search engine to look up information. \
 You are allowed to make multiple calls (either together or in sequence). \
-Only look up information when you are sure of what you want. \
+Only look up information when you are sure of what you want, but give the tool enough context. \
 If you need to look up some information before asking a follow up question, you are allowed to do that!
 """
-model = ChatOpenAI(model = "gpt-4o-mini")    #gpt-4o-mini #gpt-4o #gpt-4-turbo #gpt-3.5-turbo
+#model = ChatOpenAI(model = "gpt-4o-mini")    #gpt-4o-mini #gpt-4o #gpt-4-turbo #gpt-3.5-turbo
+model = ChatOllama(
+    model = "llama3-groq-tool-use", #llama3.1
+    temperature = 0)
 tool = TavilySearchResults(max_results = 2)
 
 #os.getenv() is necessary here, but not for API keys since libraries regarding API keys automatically looks for those in Python environment where it's loaded after calling load_env()
@@ -31,7 +35,7 @@ connection_kwargs = {
     "autocommit": True,
     "prepare_threshold": 0,
 }
-thread_id = "area_comparison_dhaka_khulna"
+thread_id = "area_comparison_dhaka_khulna_5"
 
 
 class AgentState(TypedDict):
@@ -125,7 +129,7 @@ with ConnectionPool(
     
     abot = Agent(model = model, tools = [tool], checkpointer = checkpointer, system = prompt)
 
-    ask_question("What is the area of Dhaka?", thread_id = thread_id)
+    ask_question("What is the area  of Dhaka City?", thread_id = thread_id)
     ask_question("What about Khulna?", thread_id = thread_id)
-    ask_question("Which is bigger and how many times?", thread_id = thread_id)
+    ask_question("Which is bigger and how many times??", thread_id = thread_id)
 
