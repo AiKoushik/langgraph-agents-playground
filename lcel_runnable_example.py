@@ -1,5 +1,6 @@
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda, RunnableParallel
+from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 
 from langchain_ollama import ChatOllama, OllamaEmbeddings
@@ -22,9 +23,13 @@ Question: {question}
 #setting up the prompt
 prompt = ChatPromptTemplate.from_template(template)
 
+def glorify(text):
+    #returning as AIMessage since the text is also received by this function as AIMessage
+    return AIMessage("\n>>> " + text.content + " <<<\n")
+
 #setting up the chain
 chain = RunnableParallel(
-    {"context": data_retriever, "question": RunnablePassthrough()}) | prompt | ChatOllama(model = model_name) |StrOutputParser()
+    {"context": data_retriever, "question": RunnablePassthrough()}) | prompt | ChatOllama(model = model_name) | RunnableLambda(glorify) | StrOutputParser()
 
 
 output = chain.invoke("Who are my favourite writers in which genres?")
