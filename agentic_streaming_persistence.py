@@ -14,7 +14,7 @@ from psycopg_pool import ConnectionPool
 
 import os
 
-
+#necessary for Tavily. on earlier commits, was also necessary for OpenAI
 _ = load_dotenv(find_dotenv())
 
 #setting up prompt, model, tool and memory checkpointer for persistence
@@ -25,7 +25,7 @@ If you need to look up some information before asking a follow up question, you 
 """
 #model = ChatOpenAI(model = "gpt-4o-mini")    #gpt-4o-mini #gpt-4o #gpt-4-turbo #gpt-3.5-turbo
 model = ChatOllama(
-    model = "llama3-groq-tool-use", #llama3.1
+    model = "llama3.1", #llama3.1   #llama3-groq-tool-use
     temperature = 0)
 tool = TavilySearchResults(max_results = 2)
 
@@ -130,6 +130,6 @@ with ConnectionPool(
     abot = Agent(model = model, tools = [tool], checkpointer = checkpointer, system = prompt)
 
     ask_question("What is the area  of Dhaka City?", thread_id = thread_id)
-    ask_question("What about Khulna?", thread_id = thread_id)
+    ask_question("What about that of Khulna city?", thread_id = thread_id)
     ask_question("Which is bigger and how many times??", thread_id = thread_id)
 
